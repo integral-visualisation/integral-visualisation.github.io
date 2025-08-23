@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>复变函数路径积分可视化</title>
+<style>
+  :root { --bg:#111; --fg:#eee; --muted:#bbb; --accent:#4fc3f7; --warn:#ffb74d; }
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:ui-sans-serif,system-ui,Arial}
+  header{padding:12px 16px;border-bottom:1px solid #222}
+  header h1{margin:0;font-size:18px;font-weight:700}
+  .wrap{display:flex;gap:16px;padding:16px;flex-wrap:wrap}
+  .left{flex:1 1 560px;min-width:320px}
+  .right{flex:0 0 320px;display:flex;flex-direction:column;gap:12px}
+  canvas{background:#181818;border:1px solid #333;border-radius:8px;touch-action:none}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .panel{background:#151515;border:1px solid #272727;border-radius:8px;padding:12px}
+  .panel h3{margin:0 0 8px 0;font-size:14px;color:var(--muted)}
+  input[type="text"], input[type="number"]{
+    background:#101010;border:1px solid #333;color:var(--fg);
+    padding:8px;border-radius:6px;flex:1;min-width:120px
+  }
+  input[type="checkbox"]{transform:translateY(1px)}
+  button{
+    background:#222;border:1px solid #3a3a3a;color:var(--fg);
+    padding:8px 12px;border-radius:6px;cursor:pointer
+  }
+  button.primary{border-color:#1779a6;background:#0f4460}
+  button:hover{filter:brightness(1.1)}
+  .small{font-size:12px;color:var(--muted)}
+  .badge{display:inline-block;padding:2px 6px;border:1px solid #3a3a3a;border-radius:999px;margin-left:6px;color:var(--muted)}
+  .mono{font-family:ui-monospace,Consolas,Menlo,monospace}
+  .error{color:#ff8a80}
+  .ok{color:#80cbc4}
+  .grid-legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:#9e9e9e}
+</style>
+</head>
+<body>
+<header>
+  <h1> <span class="badge">复变函数路径积分可视化</span></h1>
+</header>
+
+<div class="wrap">
+  <div class="left">
+    <canvas id="cv" width="640" height="640"></canvas>
+    <div class="grid-legend" style="margin-top:8px">
+      <div>拖动：手绘路径；单击：逐点连线<br>坐标轴：水平为 Re(z)，竖直为 Im(z)</div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="panel">
+      <h3>复变函数输入（支持 sin, cos, tan, arcsin, arccos, arctan, exp, log, sqrt, sinh, cosh, PI, E, ^, +, -, *, /）</h3>
+      <div class="row"><label class="small mono">f(z)=</label><input id="funcInput" type="text" value="sin(z)" /></div>
+      <div class="small">示例：1/z, z^2, sin(z), exp(z), log(z), Re(z), Im(z), abs(z)</div>
+    </div>
+
+    <div class="panel">
+      <h3>坐标与路径</h3>
+      <div class="row">
+        <label class="small" style="display: block; width: 100%; margin-bottom: 6px;">Re 范围</label>
+        <input id="xmin" type="number" step="0.1" value="-5">
+        <input id="xmax" type="number" step="0.1" value="5">
+      </div>
+      <div class="row">
+        <label class="small" style="display: block; width: 100%; margin-bottom: 6px;">Im 范围</label>
+        <input id="ymin" type="number" step="0.1" value="-5">
+        <input id="ymax" type="number" step="0.1" value="5">
+      </div>
+      <div class="row">
+        <label><input id="autoClose" type="checkbox" checked> 自动闭合路径（首尾相连）</label>
+      </div>
+      <div class="row">
+        <button id="undo">撤销一点</button>
+        <button id="clear">清空路径</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>计算</h3>
+      <div class="row">
+        <button id="calc" class="primary">计算 ∫ f(z) dz</button>
+      </div>
+      <div id="msg" class="small mono"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ===== UI & 绘图基础 =====
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const funcInput = document.getElementById('funcInput');
+  const xminEl = document.getElementById('xmin');
+  const xmaxEl = document.getElementById('xmax');
+  const yminEl = document.getElementById('ymin');
+  const ymaxEl = document.getElementById('ymax');
+  const autoCloseEl = document.getElementById('autoClose');
+  const msg = document.getElementById('msg');
+  const undoBtn = document.getElementById('undo');
+  const clearBtn = document.getElementById('clear');
+  const calcBtn = document.getElementById('calc');
+
+  let pts = []; let drawing=false; let lastX, lastY;
+
+  function getBounds() {
+    let xmin = parseFloat(xminEl.value);
+    let xmax = parseFloat(xmaxEl.value);
+    let ymin = parseFloat(yminEl.value);
+    let ymax = parseFloat(ymaxEl.value);
+    if (!isFinite(xmin)) xmin = -5;
+    if (!isFinite(xmax)) xmax = 5;
+    if (!isFinite(ymin)) ymin = -5;
+    if (!isFinite(ymax)) ymax = 5;
+    if (xmax === xmin) xmax = xmin + 1;
+    if (ymax === ymin) ymax = ymin + 1;
+    return { xmin, xmax, ymin, ymax };
+  }
+
+  function worldToScreen(x, y) {
+    const { xmin, xmax, ymin, ymax } = getBounds();
+    const sx = (x - xmin) / (xmax - xmin) * cv.width;
+    const sy = cv.height - (y - ymin) / (ymax - ymin) * cv.height;
+    return [sx, sy];
+  }
+  function screenToWorld(sx, sy) {
+    const { xmin, xmax, ymin, ymax } = getBounds();
+    const x = xmin + sx / cv.width  * (xmax - xmin);
+    const y = ymin + (cv.height - sy) / cv.height * (ymax - ymin);
+    return [x, y];
+  }
+
+  function drawAxes() {
+    const { xmin, xmax, ymin, ymax } = getBounds();
+    ctx.clearRect(0,0,cv.width, cv.height);
+    ctx.fillStyle = '#181818'; ctx.fillRect(0,0,cv.width, cv.height);
+
+    ctx.strokeStyle = '#262626'; ctx.lineWidth = 1;
+    const xStart = Math.ceil(xmin), xEnd = Math.floor(xmax);
+    for (let x=xStart; x<=xEnd; x++){ const [sx] = worldToScreen(x,0); ctx.beginPath(); ctx.moveTo(sx,0); ctx.lineTo(sx,cv.height); ctx.stroke(); }
+    const yStart = Math.ceil(ymin), yEnd = Math.floor(ymax);
+    for (let y=yStart; y<=yEnd; y++){ const [,sy] = worldToScreen(0,y); ctx.beginPath(); ctx.moveTo(0,sy); ctx.lineTo(cv.width,sy); ctx.stroke(); }
+
+    ctx.strokeStyle = '#444'; ctx.lineWidth = 1.5;
+    let [, sy0] = worldToScreen(0,0); ctx.beginPath(); ctx.moveTo(0, sy0); ctx.lineTo(cv.width, sy0); ctx.stroke();
+    let [sx0] = worldToScreen(0,0); ctx.beginPath(); ctx.moveTo(sx0, 0); ctx.lineTo(sx0, cv.height); ctx.stroke();
+
+    ctx.fillStyle = '#999'; ctx.font = '12px ui-monospace,Consolas,monospace';
+    for (let x=xStart; x<=xEnd; x++){ const [sx] = worldToScreen(x,0); ctx.fillText(String(x), sx+2, sy0-2); }
+    for (let y=yStart; y<=yEnd; y++){ const [,sy] = worldToScreen(0,y); if (y!=0){ctx.fillText(String(y), sx0+4, sy-2);} }
+  }
+
+  function drawPath() {
+    if (pts.length === 0) return;
+    ctx.strokeStyle = '#4fc3f7'; ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    let [s0x,s0y] = worldToScreen(pts[0].x, pts[0].y); ctx.moveTo(s0x,s0y);
+    for (let i=1;i<pts.length;i++){ const [sx,sy] = worldToScreen(pts[i].x, pts[i].y); ctx.lineTo(sx,sy); }
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffd54f';
+    for (const p of pts){ const [sx,sy] = worldToScreen(p.x,p.y); ctx.beginPath(); ctx.arc(sx,sy,3,0,Math.PI*2); ctx.fill(); }
+
+    if (autoCloseEl.checked && pts.length>1){
+      const [sx1,sy1]=worldToScreen(pts[pts.length-1].x, pts[pts.length-1].y);
+      const [sx0,sy0]=worldToScreen(pts[0].x, pts[0].y);
+      ctx.setLineDash([6,6]); ctx.strokeStyle='#81d4fa'; ctx.beginPath(); ctx.moveTo(sx1,sy1); ctx.lineTo(sx0,sy0); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+
+  function redraw(){ drawAxes(); drawPath(); }
+
+  function addPointFromEvent(e){
+    const rect = cv.getBoundingClientRect();
+    const sx = (e.clientX ?? e.touches?.[0]?.clientX) - rect.left;
+    const sy = (e.clientY ?? e.touches?.[0]?.clientY) - rect.top;
+    const [x,y] = screenToWorld(sx,sy);
+    pts.push({x,y});
+  }
+
+  cv.addEventListener('mousedown', e => { if (e.button===2) return; drawing=true; addPointFromEvent(e); redraw(); });
+  cv.addEventListener('mousemove', e => {
+    if (!drawing) return;
+    const rect = cv.getBoundingClientRect();
+    const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+    if (lastX===undefined || Math.hypot(sx-lastX, sy-lastY) > 6) { addPointFromEvent(e); lastX=sx; lastY=sy; redraw(); }
+  });
+  const endStroke = () => { drawing=false; lastX=lastY=undefined; };
+  cv.addEventListener('mouseup', endStroke);
+  cv.addEventListener('mouseleave', endStroke);
+  cv.addEventListener('contextmenu', e => { e.preventDefault(); endStroke(); redraw(); });
+  cv.addEventListener('dblclick', e => { endStroke(); redraw(); });
+  cv.addEventListener('click', e => { if (drawing) return; addPointFromEvent(e); redraw(); });
+  cv.addEventListener('touchstart', e => { e.preventDefault(); drawing=true; addPointFromEvent(e); redraw(); });
+  cv.addEventListener('touchmove', e => { e.preventDefault(); if(!drawing) return; addPointFromEvent(e); redraw(); });
+  cv.addEventListener('touchend', e => { e.preventDefault(); endStroke(); redraw(); });
+
+  // ===== Complex 类（完整） =====
+  class Complex {
+    constructor(re, im = 0) { this.re = re; this.im = im; }
+    static from(x){ return (typeof x === 'number') ? new Complex(x,0) : x; }
+    static add(a,b){ if(typeof a==='number') a=new Complex(a); if(typeof b==='number') b=new Complex(b); return new Complex(a.re+b.re, a.im+b.im); }
+    static sub(a,b){ if(typeof a==='number') a=new Complex(a); if(typeof b==='number') b=new Complex(b); return new Complex(a.re-b.re, a.im-b.im); }
+    static mul(a,b){ if(typeof a==='number') a=new Complex(a); if(typeof b==='number') b=new Complex(b); return new Complex(a.re*b.re - a.im*b.im, a.re*b.im + a.im*b.re); }
+    static div(a,b){ if(typeof a==='number') a=new Complex(a); if(typeof b==='number') b=new Complex(b); const d=b.re*b.re+b.im*b.im; if (d===0) return new Complex(NaN, NaN); return new Complex((a.re*b.re + a.im*b.im)/d, (a.im*b.re - a.re*b.im)/d); }
+    static conj(z){ if(typeof z==='number') return new Complex(z,0); return new Complex(z.re, -z.im); }
+    static abs(z){ if(typeof z==='number') return Math.abs(z); return Math.hypot(z.re, z.im); }
+    static re(z){ if(typeof z==='number') return z; return z.re; }
+    static im(z){ if(typeof z==='number') return 0; return z.im; }
+
+    static exp(z){ if(typeof z==='number') z=new Complex(z); const er=Math.exp(z.re); return new Complex(er*Math.cos(z.im), er*Math.sin(z.im)); }
+    static log(z){ if(typeof z==='number') z=new Complex(z); const r=Math.hypot(z.re,z.im); const theta=Math.atan2(z.im,z.re); return new Complex(Math.log(r), theta); }
+
+    static sin(z){ if(typeof z==='number') z=new Complex(z); // sin(x+iy) = sin x cosh y + i cos x sinh y
+      return new Complex(Math.sin(z.re)*Math.cosh(z.im), Math.cos(z.re)*Math.sinh(z.im));
+    }
+    static cos(z){ if(typeof z==='number') z=new Complex(z); // cos(x+iy)=cos x cosh y - i sin x sinh y
+      return new Complex(Math.cos(z.re)*Math.cosh(z.im), -Math.sin(z.re)*Math.sinh(z.im));
+    }
+    static tan(z){ return Complex.div(Complex.sin(z), Complex.cos(z)); }
+
+    static sinh(z){ if(typeof z==='number') z=new Complex(z); // sinh(x+iy)=sinh x cos y + i cosh x sin y
+      return new Complex(Math.sinh(z.re)*Math.cos(z.im), Math.cosh(z.re)*Math.sin(z.im));
+    }
+    static cosh(z){ if(typeof z==='number') z=new Complex(z); // cosh(x+iy)=cosh x cos y + i sinh x sin y
+      return new Complex(Math.cosh(z.re)*Math.cos(z.im), Math.sinh(z.re)*Math.sin(z.im));
+    }
+
+    static sqrt(z){ if(typeof z==='number') z=new Complex(z); const r = Math.hypot(z.re, z.im); const theta = Math.atan2(z.im, z.re) / 2; const m = Math.sqrt(r); return new Complex(m*Math.cos(theta), m*Math.sin(theta)); }
+
+    static pow(a,b){ if(typeof a==='number') a=new Complex(a); if(typeof b==='number') b=new Complex(b);
+      // handle integer powers cheaply
+      if (b.im===0 && Number.isInteger(b.re) && b.re>=0) {
+        let res = new Complex(1,0);
+        for (let i=0;i<b.re;i++) res = Complex.mul(res, a);
+        return res;
+      }
+      // z^w = exp(w * log z)
+      return Complex.exp(Complex.mul(b, Complex.log(a)));
+    }
+
+    // 反三角（使用典型复数定义）
+    static asin(z){ if(typeof z==='number') z=new Complex(z); // asin(z) = -i log( i z + sqrt(1 - z^2) )
+      const iz = Complex.mul(new Complex(0,1), z);
+      const one_minus_z2 = Complex.sub(new Complex(1,0), Complex.mul(z,z));
+      const root = Complex.sqrt(one_minus_z2);
+      const inside = Complex.add(iz, root);
+      const L = Complex.log(inside);
+      return Complex.mul(new Complex(0,-1), L);
+    }
+    static acos(z){ if(typeof z==='number') z=new Complex(z); // acos(z) = -i log(z + i sqrt(1 - z^2))
+      const one_minus_z2 = Complex.sub(new Complex(1,0), Complex.mul(z,z));
+      const root = Complex.sqrt(one_minus_z2);
+      const inside = Complex.add(z, Complex.mul(new Complex(0,1), root));
+      const L = Complex.log(inside);
+      return Complex.mul(new Complex(0,-1), L);
+    }
+    static atan(z){ if(typeof z==='number') z=new Complex(z); // atan(z) = (i/2) log((1 - iz)/(1 + iz))
+      const iz = Complex.mul(new Complex(0,1), z);
+      const num = Complex.sub(new Complex(1,0), iz);
+      const den = Complex.add(new Complex(1,0), iz);
+      return Complex.mul(new Complex(0,0.5), Complex.log(Complex.div(num, den)));
+    }
+
+    toString(){ if (isNaN(this.re) || isNaN(this.im)) return 'NaN'; if (this.im===0) return `${this.re}`; if (this.re===0) return `${this.im}i`; return `${this.re} + ${this.im}i`; }
+  }
+
+  // ===== 词法 + 递归下降解析器（返回 f(x,y) -> Complex） =====
+  function tokenizeExpr(s){
+    const tokens=[]; let i=0;
+    while(i<s.length){
+      const ch=s[i];
+      if(/\s/.test(ch)){ i++; continue; }
+      const rest=s.slice(i);
+      const num = rest.match(/^[0-9]+(?:\.[0-9]*)?(?:[eE][+-]?\d+)?/);
+      if(num){ tokens.push({type:'number', value:num[0]}); i+=num[0].length; continue; }
+      const id = rest.match(/^[A-Za-z_]\w*/);
+      if(id){ tokens.push({type:'ident', value:id[0]}); i+=id[0].length; continue; }
+      if('+-*/^(),'.includes(ch)){ tokens.push({type:'op', value:ch}); i++; continue; }
+      throw new Error('无法识别字符: ' + ch);
+    }
+    return tokens;
+  }
+
+  function parseComplexFunction(expr){
+    let tokens;
+    try { tokens = tokenizeExpr(String(expr)); } catch(e){ console.error(e); return () => new Complex(NaN, NaN); }
+    let pos = 0;
+    function peek(){ return tokens[pos]; }
+    function next(){ return tokens[pos++]; }
+
+    function parseExpression(){ return parseAddSub(); }
+    function parseAddSub(){
+      let left = parseMulDiv();
+      while(peek() && (peek().value === '+' || peek().value === '-')){
+        const op = next().value;
+        const right = parseMulDiv();
+        const L = left, R = right;
+        left = (z_complex) => op === '+' ? Complex.add(L(z_complex), R(z_complex)) : Complex.sub(L(z_complex), R(z_complex));
+      }
+      return left;
+    }
+    function parseMulDiv(){
+      let left = parsePow();
+      while(peek() && (peek().value === '*' || peek().value === '/')){
+        const op = next().value;
+        const right = parsePow();
+        const L = left, R = right;
+        left = (z_complex) => op === '*' ? Complex.mul(L(z_complex), R(z_complex)) : Complex.div(L(z_complex), R(z_complex));
+      }
+      return left;
+    }
+    function parsePow(){
+      let left = parseUnary();
+      if(peek() && peek().value === '^'){
+        next();
+        const right = parsePow(); // right-associative
+        const L = left, R = right;
+        return (z_complex) => Complex.pow(L(z_complex), R(z_complex));
+      }
+      return left;
+    }
+    function parseUnary(){
+      if(peek() && peek().value === '+'){ next(); return parseUnary(); }
+      if(peek() && peek().value === '-') { next(); const val = parseUnary(); return (z) => Complex.mul(new Complex(-1,0), val(z)); }
+      return parsePrimary();
+    }
+    function parsePrimary(){
+      const tk = peek();
+      if(!tk) throw new Error('表达式不完整');
+      if(tk.type === 'number'){ next(); const v = Number(tk.value); return (z) => new Complex(v, 0); }
+      if(tk.type === 'ident'){
+        const name = next().value;
+        if(peek() && peek().value === '('){
+          // function call
+          next(); // '('
+          const args = [];
+          if(peek() && peek().value !== ')'){
+            while(true){
+              args.push(parseExpression());
+              if(peek() && peek().value === ','){ next(); continue; }
+              break;
+            }
+          }
+          if(!peek() || peek().value !== ')') throw new Error('缺少 )');
+          next(); // ')'
+          const lname = name.toLowerCase();
+          return (z_complex) => {
+            const evalArgs = args.map(fn => {
+              const r = fn(z_complex);
+              return (r instanceof Complex) ? r : new Complex(Number(r), 0);
+            });
+            switch(lname){
+              case 'sin': return Complex.sin(evalArgs[0]);
+              case 'cos': return Complex.cos(evalArgs[0]);
+              case 'tan': return Complex.tan(evalArgs[0]);
+              case 'exp': return Complex.exp(evalArgs[0]);
+              case 'log': return Complex.log(evalArgs[0]);
+              case 'sqrt': return Complex.sqrt(evalArgs[0]);
+              case 'sinh': return Complex.sinh(evalArgs[0]);
+              case 'cosh': return Complex.cosh(evalArgs[0]);
+              case 'asin': case 'arcsin': return Complex.asin ? Complex.asin(evalArgs[0]) : Complex.asin(evalArgs[0]);
+              case 'acos': case 'arccos': return Complex.acos ? Complex.acos(evalArgs[0]) : Complex.acos(evalArgs[0]);
+              case 'atan': case 'arctan': return Complex.atan(evalArgs[0]);
+              case 'abs': return new Complex(Complex.abs(evalArgs[0]), 0);
+              case 're': return new Complex(Complex.re(evalArgs[0]), 0);
+              case 'im': return new Complex(Complex.im(evalArgs[0]), 0);
+              case 'conj': return Complex.conj(evalArgs[0]);
+              default: throw new Error('未知函数: ' + name);
+            }
+          };
+        }
+        // bare identifier
+        const lname = name.toLowerCase();
+        if(lname === 'z') return (z_complex) => z_complex;
+        if(lname === 'pi') return () => new Complex(Math.PI, 0);
+        if(lname === 'e') return () => new Complex(Math.E, 0);
+        throw new Error('未知标识符：' + name);
+      }
+      if(tk.value === '('){ next(); const fn = parseExpression(); if(!peek() || peek().value !== ')') throw new Error('缺少 )'); next(); return fn; }
+      throw new Error('无法解析的标记：' + JSON.stringify(tk));
+    }
+
+    let rootFn;
+    try {
+      rootFn = parseExpression();
+      if (pos < tokens.length) throw new Error('多余的标记');
+    } catch (e) {
+      console.error('表达式解析错误:', e);
+      return () => new Complex(NaN, NaN);
+    }
+
+    // 返回 (x,y) -> Complex
+    return (x, y) => {
+      const z_complex = new Complex(x, y);
+      try {
+        const res = rootFn(z_complex);
+        if (res instanceof Complex) return res;
+        if (typeof res === 'number') return new Complex(res, 0);
+        throw new Error('函数返回值不是复数');
+      } catch (e) {
+        console.error('函数计算错误:', e);
+        return new Complex(NaN, NaN);
+      }
+    };
+  }
+
+  // ===== 数值积分：Gauss-Legendre + 自适应细分 =====
+  function complexIntegral(funcExpr){
+    if (pts.length < 2) throw new Error('路径点不足（至少 2 个点）');
+    const f = parseComplexFunction(funcExpr);
+
+    const P = pts.slice();
+    if (autoCloseEl.checked && pts.length > 1) P.push({x: P[0].x, y: P[0].y});
+
+    const GL4 = {
+      x:[-0.8611363115940526, -0.3399810435848563, 0.3399810435848563, 0.8611363115940526],
+      w:[0.3478548451374539, 0.6521451548625461, 0.6521451548625461, 0.3478548451374539]
+    };
+    const GL8 = {
+      x:[-0.9602898564975363,-0.7966664774136267,-0.5255324099163290,-0.1834346424956498,0.1834346424956498,0.5255324099163290,0.7966664774136267,0.9602898564975363],
+      w:[0.1012285362903763,0.2223810344533745,0.3137066458778873,0.3626837833783620,0.3626837833783620,0.3137066458778873,0.2223810344533745,0.1012285362903763]
+    };
+
+    function integrateGaussOverSegment(z1, z2, GL){
+      const dz = new Complex(z2.x - z1.x, z2.y - z1.y);
+      let sum = new Complex(0,0);
+      for (let i=0;i<GL.x.length;i++){
+        const t = (GL.x[i] + 1) * 0.5;
+        const zx = z1.x + dz.re * t;
+        const zy = z1.y + dz.im * t;
+        const fi = f(zx, zy);
+        if (!Number.isFinite(fi.re) || !Number.isFinite(fi.im)) return null;
+        const w = GL.w[i] * 0.5;
+        sum = Complex.add(sum, Complex.mul(fi, new Complex(w,0)));
+      }
+      return Complex.mul(dz, sum);
+    }
+
+    function integrateSegmentAdaptive(z1, z2, depth=0){
+      const maxDepth = 14;
+      const I4 = integrateGaussOverSegment(z1, z2, GL4);
+      const I8 = integrateGaussOverSegment(z1, z2, GL8);
+      if (I4 === null || I8 === null) {
+        if (depth >= maxDepth) throw new Error(`路径经过奇点或函数未定义（段 [(${z1.x},${z1.y})-(${z2.x},${z2.y})]）`);
+        const mid = {x:(z1.x+z2.x)/2, y:(z1.y+z2.y)/2};
+        return Complex.add(integrateSegmentAdaptive(z1, mid, depth+1), integrateSegmentAdaptive(mid, z2, depth+1));
+      }
+      const diff = Complex.sub(I8, I4);
+      const err = Complex.abs(diff);
+      const mag = Math.max(1e-14, Complex.abs(I8));
+      const relTol = 1e-8; 
+      if (err <= relTol * mag || depth >= maxDepth) return I8;
+      const mid = {x:(z1.x+z2.x)/2, y:(z1.y+z2.y)/2};
+      return Complex.add(integrateSegmentAdaptive(z1, mid, depth+1), integrateSegmentAdaptive(mid, z2, depth+1));
+    }
+
+    let total = new Complex(0,0);
+    for (let k=0; k<P.length-1; k++){
+      const z1 = P[k], z2 = P[k+1];
+      const segI = integrateSegmentAdaptive(z1, z2);
+      total = Complex.add(total, segI);
+    }
+    return total;
+  }
+
+  // ===== UI 绑定 =====
+  function setMsg(html, cls='') { msg.className = `small mono ${cls}`; msg.innerHTML = html; }
+
+  calcBtn.addEventListener('click', () => {
+    try {
+      if (pts.length < 2) throw new Error('请先绘制路径（至少2个点）');
+      const result = complexIntegral(funcInput.value);
+      if (!Number.isFinite(result.re) || !Number.isFinite(result.im)) throw new Error('积分计算失败，请检查函数表达式或路径是否经过奇点');
+      const mag = Math.hypot(result.re, result.im);
+      const phase = Math.atan2(result.im, result.re) * 180 / Math.PI;
+      const sign = result.im >= 0 ? '+' : '-';
+      const absIm = Math.abs(result.im);
+      setMsg(
+        `∫ f(z) dz ≈ ${result.re.toPrecision(8)} ${sign} i·${absIm.toPrecision(8)}<br>` +
+        `模长: ${mag.toExponential(6)}<br>` +
+        `辐角: ${phase.toPrecision(6)}°`,
+        'ok'
+      );
+    } catch (err) {
+      setMsg('错误: ' + err.message, 'error');
+    }
+  });
+
+  undoBtn.addEventListener('click', () => { if (pts.length>0) pts.pop(); redraw(); });
+  clearBtn.addEventListener('click', () => { pts = []; redraw(); setMsg(''); });
+  [xminEl, xmaxEl, yminEl, ymaxEl, autoCloseEl].forEach(el => el.addEventListener('change', redraw));
+  redraw();
+
+  // 防止右键菜单在 canvas 弹出（可选）
+  cv.oncontextmenu = e => { e.preventDefault(); return false; };
+})();
+</script>
+</body>
+</html>
