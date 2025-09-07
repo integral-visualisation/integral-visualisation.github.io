@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>黎曼ζ函数可视化(预计算版)</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .slider-container {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+        }
+        .plots-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .plot {
+            flex: 1;
+            min-width: 300px;
+            height: 400px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e8f4f8;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        .value-display {
+            text-align: center;
+            font-size: 18px;
+            margin: 10px 0;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        input[type="number"] {
+            width: 100px;
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>黎曼ζ函数可视化</h1>
+        <p style="text-align: center;">实部固定为0.5，调整虚部观察ζ函数值变化</p>
+        
+        <div class="slider-container">
+            <div class="input-container">
+                <label for="imz-slider">虚部值 (t):</label>
+                <input type="range" id="imz-slider" min="-50" max="50" step="0.01" value="0">
+                <input type="number" id="imz-input" min="-50" max="50" step="0.01" value="0">
+            </div>
+            <div class="value-display">
+                当前值: <span id="current-value">0.00</span>
+            </div>
+        </div>
+        
+        <div class="plots-container">
+            <div id="input-plot" class="plot"></div>
+            <div id="output-plot" class="plot"></div>
+        </div>
+        
+        <div class="info">
+            <h3>关于黎曼ζ函数:</h3>
+            <p>ζ函数在复平面上的定义为: ζ(s) = ∑<sub>n=1</sub><sup>∞</sup> 1/n<sup>s</sup>，其中 s = σ + it</p>
+            <p>黎曼猜想认为所有非平凡零点都位于临界线 σ = 1/2 上。</p>
+            <p>本可视化展示了当实部 σ = 0.5 时，ζ函数值随虚部 t 变化的情况。</p>
+        </div>
+    </div>
+
+    <script>
+        // 加载预计算的数据
+        let zetaData = [];
+        fetch('zeta_values.json')
+            .then(response => response.json())
+            .then(data => {
+                zetaData = data;
+                initApp();
+            })
+            .catch(error => {
+                console.error('加载数据失败:', error);
+                alert('加载预计算数据失败，请确保zeta_values.json文件存在');
+            });
+
+        // 初始化应用
+        function initApp() {
+            const slider = document.getElementById('imz-slider');
+            const input = document.getElementById('imz-input');
+            const currentValue = document.getElementById('current-value');
+            
+            // 同步滑块和输入框
+            slider.addEventListener('input', function() {
+                input.value = this.value;
+                updateVisualization(parseFloat(this.value));
+            });
+            
+            input.addEventListener('input', function() {
+                let val = parseFloat(this.value);
+                if (isNaN(val)) return;
+                if (val < -50) val = -50;
+                if (val > 50) val = 50;
+                this.value = val.toFixed(2);
+                slider.value = val;
+                updateVisualization(val);
+            });
+            
+            // 初始渲染
+            updateVisualization(0);
+        }
+        
+        // 更新可视化
+        function updateVisualization(im_z) {
+            document.getElementById('current-value').textContent = im_z.toFixed(2);
+            
+            // 找到最接近的预计算点
+            const closest = findClosestPoint(im_z);
+            
+            // 绘制输入图
+            drawInputPlot(im_z);
+            
+            // 绘制输出图
+            drawOutputPlot(closest.re_val, closest.im_val);
+        }
+        
+        // 在预计算数据中查找最近的点
+        function findClosestPoint(targetImZ) {
+            let minDiff = Infinity;
+            let closestPoint = null;
+            
+            for (const point of zetaData) {
+                const diff = Math.abs(point.im_z - targetImZ);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closestPoint = point;
+                }
+            }
+            
+            return closestPoint;
+        }
+        
+        // 绘制输入图 (临界线上的点)
+        function drawInputPlot(im_z) {
+            // 已知的非平凡零点 (前10个正零点)
+            const zeros = [
+                14.1347, 21.0220, 25.0109, 30.4249, 32.9351,
+                37.5862, 40.9187, 43.3271, 48.0052, 49.7738
+            ];
+            
+            // 零点标记
+            const zeroMarkers = zeros.map(z => ({
+                x: [0.5],
+                y: [z],
+                mode: 'markers',
+                type: 'scatter',
+                marker: { color: 'blue', size: 8 },
+                name: '非平凡零点'
+            }));
+            
+            // 当前点
+            const currentPoint = {
+                x: [0.5],
+                y: [im_z],
+                mode: 'markers',
+                type: 'scatter',
+                marker: { color: 'red', size: 12 },
+                name: '当前点'
+            };
+            
+            // 临界线
+            const criticalLine = {
+                x: [0.5, 0.5],
+                y: [-50, 50],
+                mode: 'lines',
+                type: 'scatter',
+                line: { color: 'green', width: 2, dash: 'dot' },
+                name: '临界线 (Re=0.5)'
+            };
+            
+            // 布局
+            const layout = {
+                title: `输入点: z = 0.5 + ${im_z.toFixed(2)}i`,
+                xaxis: { title: '实部', range: [0.4, 0.6] },
+                yaxis: { title: '虚部', range: [-50, 50] },
+                showlegend: true,
+                legend: { orientation: 'h', y: -0.2 }
+            };
+            
+            Plotly.newPlot('input-plot', [criticalLine, ...zeroMarkers, currentPoint], layout);
+        }
+        
+        // 绘制输出图 (ζ函数值)
+        function drawOutputPlot(re_val, im_val) {
+            // 零点标记 (ζ(s)=0)
+            const origin = {
+                x: [0],
+                y: [0],
+                mode: 'markers',
+                type: 'scatter',
+                marker: { color: 'blue', size: 8 },
+                name: 'ζ(s)=0'
+            };
+            
+            // 当前ζ函数值
+            const zetaPoint = {
+                x: [re_val],
+                y: [im_val],
+                mode: 'markers',
+                type: 'scatter',
+                marker: { color: 'red', size: 12 },
+                name: 'ζ(s)值'
+            };
+            
+            // 布局
+            const layout = {
+                title: `ζ函数值`,
+                xaxis: { title: '实部', range: [-2, 4] },
+                yaxis: { title: '虚部', range: [-3, 3] },
+                showlegend: true,
+                legend: { orientation: 'h', y: -0.2 }
+            };
+            
+            Plotly.newPlot('output-plot', [origin, zetaPoint], layout);
+        }
+    </script>
+</body>
+</html>
