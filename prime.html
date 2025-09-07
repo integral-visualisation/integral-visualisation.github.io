@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>黎曼ζ函数零点与冯·曼戈尔特函数可视化</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .slider-container {
+            margin: 20px 0;
+        }
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        #graph {
+            width: 100%;
+            height: 500px;
+        }
+        .description {
+            margin-top: 30px;
+            padding: 15px;
+            background-color: #e8f4f8;
+            border-radius: 5px;
+        }
+        #formula {
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+            font-family: "Times New Roman", serif;
+        }
+        #formula ul {
+            margin-top: 10px;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>黎曼ζ函数零点与冯·曼戈尔特函数可视化</h1>
+    
+    <div class="container">
+        <div class="slider-container">
+            <div class="slider-label">
+                <span>使用的零点对数 (N):</span>
+                <span id="slider-value">25</span>
+            </div>
+            <input type="range" id="zeros-slider" min="1" max="50" value="25" step="1">
+        </div>
+        
+        <div id="graph"></div>
+    </div>
+    
+    <div class="description">
+        <h3>说明：</h3>
+        <p>此可视化展示了冯·曼戈尔特函数ψ(x)的精确值与使用黎曼ζ函数零点近似值之间的比较。</p>
+        <ul>
+            <li><strong>黑色实线</strong>: 精确的ψ(x) = ΣΛ(n) (n ≤ x)</li>
+            <li><strong>红色点</strong>: 使用N对ζ函数零点的近似值</li>
+            <li><strong>灰色虚线</strong>: 标记素数幂的位置</li>
+        </ul>
+        
+        <div id="formula">
+            <h4>冯·曼戈尔特显式公式：</h4>
+            $$
+            \psi(x) = x - \sum_{\rho}\frac{x^{\rho}}{\rho} - \log(2\pi) - \frac{1}{2}\log(1-x^{-2})
+            $$
+            <p>其中：</p>
+            <ul>
+                <li>ρ 遍历黎曼ζ函数的非平凡零点</li>
+                <li>x > 1 且 x 不是素数幂</li>
+                <li>当 x 是素数幂时，函数有跳跃间断</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // 预计算的素数列表（2到97）
+        const primes = [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97];
+        
+        // 判断是否为素数
+        function isPrime(n) {
+            return primes.includes(n);
+        }
+        
+        // 初始化冯·曼戈尔特函数缓存
+        function initMangoldtCache(maxX = 100) {
+            const cache = new Array(maxX + 1).fill(0);
+            for (let n = 2; n <= maxX; n++) {
+                if (isPrime(n)) {
+                    cache[n] = Math.log(n);
+                } else {
+                    for (let p = 2; p <= Math.sqrt(n); p++) {
+                        if (!isPrime(p)) continue;
+                        let k = 2;
+                        while (Math.pow(p, k) <= n) {
+                            if (Math.pow(p, k) === n) {
+                                cache[n] = Math.log(p);
+                            }
+                            k++;
+                        }
+                    }
+                }
+            }
+            return cache;
+        }
+        
+        const mangoldtCache = initMangoldtCache();
+        
+        // 计算精确的ψ(x)
+        function exactPsi(x) {
+            let sum = 0;
+            for (let n = 1; n <= x; n++) {
+                sum += mangoldtCache[n];
+            }
+            return sum;
+        }
+        
+        // 预计算的ζ函数零点（前50对）
+        const precomputedZeros = [
+            {n: 1, imag: 14.134725},
+            {n: 2, imag: 21.022040},
+            {n: 3, imag: 25.010858},
+            {n: 4, imag: 30.424876},
+            {n: 5, imag: 32.935062},
+            {n: 6, imag: 37.586178},
+            {n: 7, imag: 40.918719},
+            {n: 8, imag: 43.327073},
+            {n: 9, imag: 48.005151},
+            {n: 10, imag: 49.773832},
+            {n: 11, imag: 52.970321},
+            {n: 12, imag: 56.446248},
+            {n: 13, imag: 59.347044},
+            {n: 14, imag: 60.831779},
+            {n: 15, imag: 65.112544},
+            {n: 16, imag: 67.079811},
+            {n: 17, imag: 69.546402},
+            {n: 18, imag: 72.067158},
+            {n: 19, imag: 75.704691},
+            {n: 20, imag: 77.144840},
+            {n: 21, imag: 79.337375},
+            {n: 22, imag: 82.910381},
+            {n: 23, imag: 84.735493},
+            {n: 24, imag: 87.425275},
+            {n: 25, imag: 88.809111},
+            {n: 26, imag: 92.491899},
+            {n: 27, imag: 94.651344},
+            {n: 28, imag: 95.870634},
+            {n: 29, imag: 98.831194},
+            {n: 30, imag: 101.317851},
+            {n: 31, imag: 103.725538},
+            {n: 32, imag: 105.446623},
+            {n: 33, imag: 107.168611},
+            {n: 34, imag: 111.029536},
+            {n: 35, imag: 111.874659},
+            {n: 36, imag: 114.320221},
+            {n: 37, imag: 116.226680},
+            {n: 38, imag: 118.790782},
+            {n: 39, imag: 121.370125},
+            {n: 40, imag: 122.946829},
+            {n: 41, imag: 124.256819},
+            {n: 42, imag: 127.516684},
+            {n: 43, imag: 129.578704},
+            {n: 44, imag: 131.087688},
+            {n: 45, imag: 133.497737},
+            {n: 46, imag: 134.756510},
+            {n: 47, imag: 138.116042},
+            {n: 48, imag: 139.736209},
+            {n: 49, imag: 141.123707},
+            {n: 50, imag: 143.111846}
+        ];
+        
+        // 获取零点对
+        function getZeros(N) {
+            const zeros = [];
+            for (let i = 0; i < N; i++) {
+                const zero = precomputedZeros[i];
+                zeros.push({real: 0.5, imag: zero.imag});
+                zeros.push({real: 0.5, imag: -zero.imag});
+            }
+            return zeros;
+        }
+        
+        // 计算近似值
+        function approximatePsi(x, zeros) {
+            let sumReal = 0;
+            let sumImag = 0;
+            
+            for (const rho of zeros) {
+                // 计算 x^ρ = e^(ρ * ln(x))
+                const logx = Math.log(x);
+                const exponentReal = rho.real * logx;
+                const exponentImag = rho.imag * logx;
+                
+                // e^(a+bi) = e^a * (cos(b) + i*sin(b))
+                const eReal = Math.exp(exponentReal) * Math.cos(exponentImag);
+                const eImag = Math.exp(exponentReal) * Math.sin(exponentImag);
+                
+                // 计算 x^ρ / ρ
+                const denominator = rho.real * rho.real + rho.imag * rho.imag;
+                const divReal = (eReal * rho.real + eImag * rho.imag) / denominator;
+                const divImag = (eImag * rho.real - eReal * rho.imag) / denominator;
+                
+                sumReal += divReal;
+                sumImag += divImag;
+            }
+            
+            const term1 = x;
+            const term2 = -sumReal; // 只取实部
+            const term3 = -Math.log(2 * Math.PI);
+            const term4 = -0.5 * Math.log(1 - Math.pow(x, -2));
+            
+            return term1 + term2 + term3 + term4;
+        }
+        
+        // 绘制图形
+        function drawGraph(N) {
+            const xValues = [];
+            for (let x = 2; x <= 100; x++) {
+                xValues.push(x);
+            }
+            
+            // 计算精确值
+            const exactValues = xValues.map(x => exactPsi(x));
+            
+            // 计算近似值
+            const zeros = getZeros(N);
+            const approxValues = xValues.map(x => approximatePsi(x, zeros));
+            
+            // 找出素数幂位置
+            const primePowers = [];
+            for (let x = 2; x <= 100; x++) {
+                if (mangoldtCache[x] > 0) {
+                    primePowers.push(x);
+                }
+            }
+            
+            // 准备绘图数据
+            const exactTrace = {
+                x: xValues,
+                y: exactValues,
+                mode: 'lines',
+                name: '精确 ψ(x)',
+                line: {color: 'black', width: 2}
+            };
+            
+            // 创建非素数幂点的近似值
+            const approxX = [];
+            const approxY = [];
+            for (let i = 0; i < xValues.length; i++) {
+                if (!primePowers.includes(xValues[i])) {
+                    approxX.push(xValues[i]);
+                    approxY.push(approxValues[i]);
+                }
+            }
+            
+            const approxTrace = {
+                x: approxX,
+                y: approxY,
+                mode: 'markers',
+                name: `近似 (N=${N} 对零点)`,
+                marker: {color: 'red', size: 6}
+            };
+            
+            // 创建垂直线条
+            const vlineShapes = primePowers.map(x => ({
+                type: 'line',
+                x0: x,
+                x1: x,
+                y0: 0,
+                y1: Math.max(...exactValues),
+                line: {color: 'gray', width: 1, dash: 'dot'},
+                opacity: 0.3
+            }));
+            
+            // 绘图布局
+            const layout = {
+                title: `冯·曼戈尔特显式公式 (使用${N}对零点)`,
+                xaxis: {title: 'x'},
+                yaxis: {title: 'ψ(x)'},
+                shapes: vlineShapes,
+                showlegend: true,
+                legend: {x: 0, y: 1},
+                margin: {l: 50, r: 50, b: 50, t: 50, pad: 4},
+                hovermode: 'closest'
+            };
+            
+            Plotly.newPlot('graph', [exactTrace, approxTrace], layout);
+        }
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            const slider = document.getElementById('zeros-slider');
+            const sliderValue = document.getElementById('slider-value');
+            
+            // 初始绘制
+            drawGraph(parseInt(slider.value));
+            sliderValue.textContent = slider.value;
+            
+            // 滑块事件监听
+            slider.addEventListener('input', function() {
+                const N = parseInt(this.value);
+                sliderValue.textContent = N;
+                drawGraph(N);
+            });
+        });
+    </script>
+</body>
+</html>
