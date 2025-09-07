@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>黎曼ζ函数可视化(预计算版)</title>
+    <title>黎曼ζ函数非平凡零点可视化</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body {
@@ -73,7 +73,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>黎曼ζ函数可视化</h1>
+        <h1>黎曼ζ函数非平凡零点可视化</h1>
         <p style="text-align: center;">实部固定为0.5，调整虚部观察ζ函数值变化</p>
         
         <div class="slider-container">
@@ -172,30 +172,34 @@
         
         // 绘制输入图 (临界线上的点)
         function drawInputPlot(im_z) {
-            // 已知的非平凡零点 (前10个正零点)
+            // 已知的非平凡零点 (前10个正零点和负零点)
             const zeros = [
                 14.1347, 21.0220, 25.0109, 30.4249, 32.9351,
-                37.5862, 40.9187, 43.3271, 48.0052, 49.7738
+                37.5862, 40.9187, 43.3271, 48.0052, 49.7738,
+                -14.1347, -21.0220, -25.0109, -30.4249, -32.9351,
+                -37.5862, -40.9187, -43.3271, -48.0052, -49.7738
             ];
             
-            // 零点标记
-            const zeroMarkers = zeros.map(z => ({
-                x: [0.5],
-                y: [z],
-                mode: 'markers',
+            // 零点水平线
+            const zeroLines = zeros.map(z => ({
+                x: [0.4, 0.6],
+                y: [z, z],
+                mode: 'lines',
                 type: 'scatter',
-                marker: { color: 'blue', size: 8 },
-                name: '非平凡零点'
+                line: { color: 'blue', width: 1, dash: 'dot' },
+                showlegend: false,
+                hoverinfo: 'none'
             }));
             
-            // 当前点
+            // 当前点标记
             const currentPoint = {
                 x: [0.5],
                 y: [im_z],
                 mode: 'markers',
                 type: 'scatter',
-                marker: { color: 'red', size: 12 },
-                name: '当前点'
+                marker: { color: 'red', size: 8 },
+                name: '当前点',
+                hoverinfo: 'y'
             };
             
             // 临界线
@@ -204,20 +208,44 @@
                 y: [-50, 50],
                 mode: 'lines',
                 type: 'scatter',
-                line: { color: 'green', width: 2, dash: 'dot' },
+                line: { color: 'green', width: 2 },
                 name: '临界线 (Re=0.5)'
+            };
+            
+            // 实轴
+            const realAxis = {
+                x: [0.4, 0.6],
+                y: [0, 0],
+                mode: 'lines',
+                type: 'scatter',
+                line: { color: 'black', width: 1.5 },
+                name: '实轴'
             };
             
             // 布局
             const layout = {
                 title: `输入点: z = 0.5 + ${im_z.toFixed(2)}i`,
-                xaxis: { title: '实部', range: [0.4, 0.6] },
-                yaxis: { title: '虚部', range: [-50, 50] },
+                xaxis: { 
+                    title: '实部', 
+                    range: [0.4, 0.6],
+                    showgrid: true,
+                    gridwidth: 1,
+                    gridcolor: '#eee'
+                },
+                yaxis: { 
+                    title: '虚部', 
+                    range: [-50, 50],
+                    showgrid: true,
+                    gridwidth: 1,
+                    gridcolor: '#eee'
+                },
                 showlegend: true,
-                legend: { orientation: 'h', y: -0.2 }
+                legend: { orientation: 'h', y: -0.2 },
+                margin: { t: 50, b: 50, l: 50, r: 50 },
+                height: 400
             };
             
-            Plotly.newPlot('input-plot', [criticalLine, ...zeroMarkers, currentPoint], layout);
+            Plotly.newPlot('input-plot', [realAxis, criticalLine, ...zeroLines, currentPoint], layout);
         }
         
         // 绘制输出图 (ζ函数值)
@@ -229,7 +257,8 @@
                 mode: 'markers',
                 type: 'scatter',
                 marker: { color: 'blue', size: 8 },
-                name: 'ζ(s)=0'
+                name: 'ζ(s)=0',
+                hoverinfo: 'none'
             };
             
             // 当前ζ函数值
@@ -238,20 +267,57 @@
                 y: [im_val],
                 mode: 'markers',
                 type: 'scatter',
-                marker: { color: 'red', size: 12 },
-                name: 'ζ(s)值'
+                marker: { color: 'red', size: 10 },
+                name: 'ζ(s)值',
+                hoverinfo: 'x+y'
+            };
+            
+            // 实轴
+            const realAxis = {
+                x: [-2, 4],
+                y: [0, 0],
+                mode: 'lines',
+                type: 'scatter',
+                line: { color: 'black', width: 1.5 },
+                name: '实轴',
+                hoverinfo: 'none'
+            };
+            
+            // 虚轴
+            const imagAxis = {
+                x: [0, 0],
+                y: [-3, 3],
+                mode: 'lines',
+                type: 'scatter',
+                line: { color: 'black', width: 1.5 },
+                name: '虚轴',
+                hoverinfo: 'none'
             };
             
             // 布局
             const layout = {
-                title: `ζ函数值`,
-                xaxis: { title: '实部', range: [-2, 4] },
-                yaxis: { title: '虚部', range: [-3, 3] },
+                title: `ζ函数值: ζ(0.5 + ${document.getElementById('current-value').textContent}i)`,
+                xaxis: { 
+                    title: '实部', 
+                    range: [-2, 4],
+                    showgrid: true,
+                    gridwidth: 1,
+                    gridcolor: '#eee'
+                },
+                yaxis: { 
+                    title: '虚部', 
+                    range: [-3, 3],
+                    showgrid: true,
+                    gridwidth: 1,
+                    gridcolor: '#eee'
+                },
                 showlegend: true,
-                legend: { orientation: 'h', y: -0.2 }
+                legend: { orientation: 'h', y: -0.2 },
+                margin: { t: 50, b: 50, l: 50, r: 50 },
+                height: 400
             };
             
-            Plotly.newPlot('output-plot', [origin, zetaPoint], layout);
+            Plotly.newPlot('output-plot', [realAxis, imagAxis, origin, zetaPoint], layout);
         }
     </script>
 </body>
